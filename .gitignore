@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+*.blockmap
+
+# Dump files
+ClassesInfo.json
+StructsInfo.json
+FunctionsInfo.json
+EnumsInfo.json
+OffsetsInfo.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Electron build artifacts
+builder-debug.yml
+builder-effective-config.yaml
+

@@ -1,0 +1,70 @@
+{
+  "name": "dumpspace-viewer",
+  "version": "1.0.0",
+  "description": "Modern Dumpspace Viewer for Unreal Engine dump data",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win"
+  },
+  "keywords": [
+    "unreal",
+    "dumpspace",
+    "viewer"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.dumpspace.viewer",
+    "productName": "Dumpspace Viewer",
+    "asar": true,
+    "compression": "maximum",
+    "icon": "build/icon",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/README*",
+      "!**/test/**/*",
+      "!**/tests/**/*",
+      "!**/*.test.js",
+      "!**/*.spec.js",
+      "!ClassesInfo.json",
+      "!EnumsInfo.json",
+      "!FunctionsInfo.json",
+      "!OffsetsInfo.json",
+      "!StructsInfo.json",
+      "!package-lock.json"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "vis-network": "^10.0.2"
+  }
+}

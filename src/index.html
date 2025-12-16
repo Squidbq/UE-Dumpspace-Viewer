@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';">
+    <title>Dumpspace Viewer</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Bar -->
+        <nav class="top-nav" id="topNav" style="display: none;">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-category="classes">Classes</button>
+                <button class="nav-tab" data-category="structs">Structs</button>
+                <button class="nav-tab" data-category="functions">Functions</button>
+                <button class="nav-tab" data-category="enums">Enums</button>
+                <button class="nav-tab" data-category="offsets">Offsets</button>
+                <button class="nav-tab nav-tab-search" data-category="search">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: middle;">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                    </svg>
+                    Global Search
+                </button>
+            </div>
+            <div class="nav-meta">
+                <button class="nav-select-folder-btn" id="navSelectFolderBtn" title="Select different folder">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    Change Folder
+                </button>
+                <button class="nav-generate-offsets-btn" id="navGenerateOffsetsBtn" title="Generate offsets">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    Generate Offsets
+                    <span class="nav-offsets-badge" id="navOffsetsBadge" style="display: none;">0</span>
+                </button>
+                <span class="nav-timestamp-label">Dump Date:</span>
+                <span class="nav-timestamp" id="navTimestamp"></span>
+            </div>
+        </nav>
+
+        <!-- Initial Folder Selection Screen -->
+        <div id="folderSelectionScreen" class="folder-selection-screen">
+            <div class="folder-selection-content">
+                <svg class="folder-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <h2>Select JSON Files Folder</h2>
+                <p>Please select the folder containing your JSON dump files</p>
+                <p class="folder-hint">(ClassesInfo.json, StructsInfo.json, FunctionsInfo.json, EnumsInfo.json, OffsetsInfo.json)</p>
+                <button id="selectFolderBtn" class="btn btn-primary btn-large">Select Folder</button>
+                <p id="selectedFolderPath" class="selected-folder-path" style="display: none;"></p>
+                <div id="errorDisplay" class="error-display" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Loading Screen with Progress -->
+        <div id="loadingScreen" class="loading-screen" style="display: none;">
+            <div class="loading-content">
+                <div class="loading-spinner-large">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                </div>
+                <h2 id="loadingTitle">Loading Data Files</h2>
+                <p id="loadingStatus">Initializing...</p>
+                <div class="progress-bar-container">
+                    <div class="progress-bar">
+                        <div id="progressBarFill" class="progress-bar-fill"></div>
+                    </div>
+                    <span id="progressText" class="progress-text">0%</span>
+                </div>
+                <div id="loadingErrorDisplay" class="error-display" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="main-layout" id="mainLayout" style="display: none;">
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2 id="sidebarTitle" class="sidebar-title">Classes</h2>
+                </div>
+                <div class="sidebar-search">
+                    <div class="search-input-wrapper">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <path d="m21 21-4.35-4.35"></path>
+                        </svg>
+                        <input 
+                            type="text" 
+                            id="sidebarSearchInput" 
+                            class="sidebar-search-input" 
+                            placeholder="Search..."
+                            autocomplete="off"
+                        >
+                        <button id="clearSidebarSearchBtn" class="clear-search-btn" title="Clear">×</button>
+                    </div>
+                </div>
+                <div class="sidebar-content">
+                    <div id="sidebarList" class="sidebar-list"></div>
+                </div>
+            </aside>
+
+            <!-- Right Detail Panel -->
+            <main class="detail-panel-main">
+                <div id="detailView" class="detail-view" style="display: none;">
+                    <div class="detail-header-main">
+                        <div class="detail-title-section">
+                            <h1 id="detailTitleMain" class="detail-title-main"></h1>
+                            <div id="inheritancePath" class="inheritance-path"></div>
+                        </div>
+                        <div class="detail-actions">
+                            <button id="copyCodeBtn" class="btn-icon" title="Copy Code">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="detail-tabs" id="detailTabs">
+                        <button class="detail-tab active" data-tab="overview">Overview</button>
+                        <button class="detail-tab" data-tab="struct" style="display: none;">Struct</button>
+                    </div>
+
+                    <div class="detail-content-main">
+                        <div id="tabOverview" class="tab-content active">
+                            <div id="memberSearchContainer" class="member-search-container" style="display: none;">
+                                <div class="member-search-controls">
+                                <div class="search-input-wrapper">
+                                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <circle cx="11" cy="11" r="8"></circle>
+                                        <path d="m21 21-4.35-4.35"></path>
+                                    </svg>
+                                    <input 
+                                        type="text" 
+                                        id="memberSearchInput" 
+                                        class="member-search-input" 
+                                            placeholder="Search members... (↑↓ to navigate)"
+                                        autocomplete="off"
+                                    >
+                                    <button id="clearMemberSearchBtn" class="clear-search-btn" title="Clear" style="display: none;">×</button>
+                                    </div>
+                                    <button id="advancedMemberSearchBtn" class="advanced-search-btn" title="Advanced Search">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="11" cy="11" r="8"></circle>
+                                            <path d="m21 21-4.35-4.35"></path>
+                                            <circle cx="11" cy="11" r="3"></circle>
+                                        </svg>
+                                        <span>Advanced</span>
+                                    </button>
+                                </div>
+                                <div id="memberSearchResults" class="member-search-results"></div>
+                            </div>
+                            <div id="overviewContent">
+                                <table class="members-table" id="membersTable" style="display: none;">
+                                    <thead>
+                                        <tr>
+                                            <th>TYPE</th>
+                                            <th>MEMBER</th>
+                                            <th>OFFSET</th>
+                                            <th>SIZE</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="membersTableBody">
+                                    </tbody>
+                                </table>
+                                <div id="functionBlocksContainer" style="display: none;"></div>
+                            </div>
+                        </div>
+
+                        <div id="tabStruct" class="tab-content">
+                            <div class="code-section">
+                                <div class="code-actions">
+                                    <button id="copyCodeDetailBtn" class="btn btn-primary">Copy to Clipboard</button>
+                                    <button id="exportCodeBtn" class="btn btn-secondary">Export to File</button>
+                                </div>
+                                <pre id="generatedCode" class="code-block"><code></code></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="emptyState" class="empty-state-main">
+                    <p>Select an item from the sidebar to view details</p>
+                </div>
+            </main>
+        </div>
+
+
+        <!-- Global Search Modal (hidden by default) -->
+        <div id="globalSearchModal" class="global-search-modal" style="display: none;">
+            <div class="global-search-modal-overlay"></div>
+            <div class="global-search-content">
+                <div class="global-search-header">
+                    <h2>Global Search</h2>
+                    <button id="closeGlobalSearch" class="close-btn">×</button>
+                </div>
+                <div class="global-search-input-wrapper">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                    </svg>
+                    <input 
+                        type="text" 
+                        id="globalSearchInput" 
+                        class="global-search-input" 
+                        placeholder="Search..."
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="global-search-filters">
+                    <div class="filter-group-main">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gFilterClasses" checked>
+                            <span>Classes</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gFilterStructs" checked>
+                            <span>Structs</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gFilterFunctions" checked>
+                            <span>Functions</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gFilterEnums" checked>
+                            <span>Enums</span>
+                        </label>
+                    </div>
+                    <div class="filter-group-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gTypeSearchMode">
+                            <span>Type Search</span>
+                        </label>
+                        <span class="filter-description">When enabled, it will search for the given member type instead of member name.</span>
+                    </div>
+                    <div class="filter-group-options" id="gIncludeFunctionParamsGroup">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="gIncludeFunctionParams" checked>
+                            <span>Include Function Params</span>
+                        </label>
+                        <span class="filter-description">When enabled, the search will include the functions parameter name/type.</span>
+                    </div>
+                </div>
+                <div id="globalSearchResults" class="global-search-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Member Search Modal -->
+    <div id="advancedMemberSearchModal" class="advanced-member-search-modal" style="display: none;">
+        <div class="advanced-member-search-modal-overlay"></div>
+        <div class="advanced-member-search-content">
+            <div class="advanced-member-search-header">
+                <h2>Advanced Member Search</h2>
+                <button id="closeAdvancedMemberSearch" class="close-btn" title="Close">×</button>
+            </div>
+            <div class="advanced-member-search-input-wrapper">
+                <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <path d="m21 21-4.35-4.35"></path>
+                </svg>
+                <input 
+                    type="text" 
+                    id="advancedMemberSearchInput" 
+                    class="advanced-member-search-input" 
+                    placeholder="Search in inheritance chain..."
+                    autocomplete="off"
+                >
+            </div>
+            <div class="advanced-member-search-options">
+                <div class="advanced-search-direction-group">
+                    <label class="option-label">Search Direction:</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="searchDirection" value="up" checked>
+                            <span>Up (Parents)</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="searchDirection" value="down">
+                            <span>Down (Children)</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="searchDirection" value="both">
+                            <span>Both</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="advanced-search-types-group">
+                    <label class="option-label">Search Types:</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchMembers" checked>
+                            <span>Members/Variables</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchFunctions">
+                            <span>Functions</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchFunctionParams">
+                            <span>Function Params</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchClasses">
+                            <span>Class</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchStructs">
+                            <span>Struct</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="advSearchEnums">
+                            <span>Enum</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div id="advancedMemberSearchResults" class="advanced-member-search-results"></div>
+        </div>
+    </div>
+
+    <!-- Inheritance Graph Modal -->
+    <div id="inheritanceGraphModal" class="inheritance-graph-modal" style="display: none;">
+        <div class="inheritance-graph-modal-overlay"></div>
+        <div class="inheritance-graph-modal-content">
+            <div class="inheritance-graph-header">
+                <div class="inheritance-graph-nav">
+                    <button id="graphNavBack" class="graph-nav-btn" title="Go Back" disabled>← Back</button>
+                    <button id="graphNavForward" class="graph-nav-btn" title="Go Forward" disabled>Forward →</button>
+                </div>
+                <h2 id="inheritanceGraphTitle" class="inheritance-graph-title">Inheritance Graph</h2>
+                <button id="inheritanceGraphClose" class="inheritance-graph-close" title="Close">×</button>
+            </div>
+            <div class="inheritance-graph-controls">
+                <div class="inheritance-graph-search">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                    </svg>
+                    <input 
+                        type="text" 
+                        id="inheritanceGraphSearchInput" 
+                        class="inheritance-graph-search-input" 
+                        placeholder="Search classes..."
+                        autocomplete="off"
+                    >
+                    <button id="clearGraphSearchBtn" class="clear-search-btn" title="Clear" style="display: none;">×</button>
+                </div>
+                <div class="inheritance-graph-options">
+                    <label class="inheritance-graph-checkbox">
+                        <input type="checkbox" id="graphShowParents" checked>
+                        <span>Show Parents</span>
+                    </label>
+                    <label class="inheritance-graph-checkbox">
+                        <input type="checkbox" id="graphShowChildren" checked>
+                        <span>Show Children</span>
+                    </label>
+                    <label class="inheritance-graph-checkbox">
+                        <input type="checkbox" id="graphShowMembers">
+                        <span>Show Members</span>
+                    </label>
+                    <label class="inheritance-graph-checkbox">
+                        <input type="checkbox" id="graphSyncDepths" checked>
+                        <span>Sync Depths</span>
+                    </label>
+                    <label class="inheritance-graph-checkbox">
+                        <span>Parent Depth:</span>
+                        <input type="number" id="graphParentDepth" min="0" max="10" value="2" style="width: 60px; margin-left: 0.5rem;">
+                    </label>
+                    <label class="inheritance-graph-checkbox">
+                        <span>Child Depth:</span>
+                        <input type="number" id="graphChildDepth" min="0" max="10" value="2" style="width: 60px; margin-left: 0.5rem;">
+                    </label>
+                </div>
+                <div class="inheritance-graph-zoom-controls">
+                    <button id="graphZoomReset" class="graph-control-btn" title="Reset Zoom">Reset</button>
+                    <button id="graphZoomFit" class="graph-control-btn" title="Fit to Screen">Fit</button>
+                </div>
+            </div>
+            <div id="inheritanceGraphContainer" class="inheritance-graph-container"></div>
+            <div id="inheritanceGraphInfo" class="inheritance-graph-info"></div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Offsets Collection Management Modal -->
+    <div id="offsetsCollectionModal" class="offsets-collection-modal" style="display: none;">
+        <div class="offsets-collection-modal-overlay"></div>
+        <div class="offsets-collection-modal-content">
+            <div class="offsets-collection-header">
+                <h2>Offset Collections</h2>
+                <button class="offsets-collection-close" id="offsetsCollectionClose">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="offsets-collection-body">
+                <div class="offsets-collection-toolbar">
+                    <button class="btn btn-primary" id="newCollectionBtn">New Collection</button>
+                    <button class="btn btn-secondary" id="importCollectionBtn">Import</button>
+                    <div class="offsets-game-filter">
+                        <label>Game:</label>
+                        <select id="offsetsGameFilter">
+                            <option value="all">All Games</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="offsetsCollectionList" class="offsets-collection-list">
+                    <!-- Collections will be listed here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Collection Dialog -->
+    <div id="newCollectionDialog" class="new-collection-dialog" style="display: none;">
+        <div class="new-collection-dialog-overlay"></div>
+        <div class="new-collection-dialog-content">
+            <div class="new-collection-header">
+                <h3>Create New Collection</h3>
+                <button class="new-collection-close" id="newCollectionClose">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="new-collection-body">
+                <div class="new-collection-field">
+                    <label>Game Name:</label>
+                    <input type="text" id="newCollectionGameName" placeholder="e.g., DeadByDaylight">
+                </div>
+                <div class="new-collection-field">
+                    <label>Game Version:</label>
+                    <input type="text" id="newCollectionGameVersion" placeholder="e.g., 5.4.4-2938806">
+                </div>
+                <div class="new-collection-field">
+                    <label>Dump Date:</label>
+                    <input type="text" id="newCollectionDumpDate" readonly>
+                </div>
+                <div class="new-collection-field">
+                    <label>Collection Name:</label>
+                    <input type="text" id="newCollectionName" placeholder="e.g., PlayerOffsets" required>
+                </div>
+            </div>
+            <div class="new-collection-actions">
+                <button class="btn btn-secondary" id="newCollectionCancel">Cancel</button>
+                <button class="btn btn-primary" id="newCollectionCreate">Create Collection</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Dialog -->
+    <div id="confirmDialog" class="confirm-dialog" style="display: none;">
+        <div class="confirm-dialog-overlay"></div>
+        <div class="confirm-dialog-content">
+            <div class="confirm-dialog-header">
+                <h3 id="confirmDialogTitle">Confirm</h3>
+                <button class="confirm-dialog-close" id="confirmDialogClose">×</button>
+            </div>
+            <div class="confirm-dialog-body">
+                <p id="confirmDialogMessage"></p>
+            </div>
+            <div class="confirm-dialog-actions">
+                <button class="btn btn-secondary" id="confirmDialogCancel">Cancel</button>
+                <button class="btn btn-danger" id="confirmDialogConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../node_modules/vis-network/dist/vis-network.min.js"></script>
+    <script src="scripts/utils.js"></script>
+    <script src="scripts/navigation.js"></script>
+    <script src="scripts/collectionStorage.js"></script>
+    <script src="scripts/collections.js"></script>
+    <script src="scripts/offsetsGenerator.js"></script>
+    <script src="scripts/search.js"></script>
+    <script src="scripts/app.js"></script>
+    <script src="scripts/inheritance.js"></script>
+    <script src="scripts/codegen.js"></script>
+    <script src="scripts/inheritanceGraph.js"></script>
+</body>
+</html>
