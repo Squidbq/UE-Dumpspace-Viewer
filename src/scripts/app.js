@@ -277,7 +277,7 @@ class DumpspaceApp {
                 
                 const allFilesExist = await this.checkAllFilesExist();
                 if (allFilesExist) {
-                    await this.startLoading();
+                await this.startLoading();
                 } else {
                     this.showFolderSelection();
                 }
@@ -321,10 +321,10 @@ class DumpspaceApp {
         try {
             const success = await this.loadData();
             if (success) {
-                this.updateTimestamp();
-                this.hideLoading();
-                this.showNavigation();
-                this.loadCategory('classes');
+        this.updateTimestamp();
+        this.hideLoading();
+        this.showNavigation();
+        this.loadCategory('classes');
             }
         } catch (error) {
             this.showError('Failed to load data. Please try again.');
@@ -369,7 +369,7 @@ class DumpspaceApp {
                 window.electronAPI.loadJSONFile(file.filename, this.selectedFolderPath)
                     .then(result => {
                         if (result && result.success) {
-                            this.updateProgress((index + 1) * 10, `Loaded ${file.filename}...`, 'Loading Data Files');
+                        this.updateProgress((index + 1) * 10, `Loaded ${file.filename}...`, 'Loading Data Files');
                             return { key: file.key, data: result.data, success: true };
                         } else {
                             return { key: file.key, data: null, success: false, error: result?.error || 'Unknown error' };
@@ -1231,7 +1231,7 @@ class DumpspaceApp {
             if (e.key === 'Escape') {
                 const globalSearchModal = document.getElementById('globalSearchModal');
                 if (globalSearchModal && globalSearchModal.style.display !== 'none') {
-                    this.closeGlobalSearch();
+                this.closeGlobalSearch();
                     return;
                 }
                 
@@ -1416,7 +1416,7 @@ class DumpspaceApp {
         
         detailView.style.display = 'flex';
         emptyState.style.display = 'none';
-        
+
         setTimeout(() => {
             this.selectItemInSidebar(item);
         }, 50);
@@ -1479,7 +1479,7 @@ class DumpspaceApp {
         
         titleElement.style.cursor = 'context-menu';
     }
-    
+
     populateFunctionClassTab(item) {
         const overviewContent = document.getElementById('overviewContent');
         if (overviewContent && !overviewContent.querySelector('#functionBlocksContainer')) {
@@ -1979,27 +1979,27 @@ class DumpspaceApp {
             if (isFunctionClass) {
                 this.populateFunctionClassTab(this.currentDetailItem);
             } else {
-                const overviewContent = document.getElementById('overviewContent');
-                const itemType = this.currentDetailItem.type || this.currentDetailItem.searchType;
-                
-                if (itemType !== 'enum' && overviewContent && !overviewContent.querySelector('#membersTable')) {
-                    overviewContent.innerHTML = `
-                        <table class="members-table" id="membersTable">
-                            <thead>
-                                <tr>
-                                    <th>TYPE</th>
-                                    <th>MEMBER</th>
-                                    <th>OFFSET</th>
-                                    <th>SIZE</th>
-                                </tr>
-                            </thead>
-                            <tbody id="membersTableBody">
-                            </tbody>
-                        </table>
-                        <div id="functionBlocksContainer" style="display: none;"></div>
-                    `;
-                }
-                
+            const overviewContent = document.getElementById('overviewContent');
+            const itemType = this.currentDetailItem.type || this.currentDetailItem.searchType;
+            
+            if (itemType !== 'enum' && overviewContent && !overviewContent.querySelector('#membersTable')) {
+                overviewContent.innerHTML = `
+                    <table class="members-table" id="membersTable">
+                        <thead>
+                            <tr>
+                                <th>TYPE</th>
+                                <th>MEMBER</th>
+                                <th>OFFSET</th>
+                                <th>SIZE</th>
+                            </tr>
+                        </thead>
+                        <tbody id="membersTableBody">
+                        </tbody>
+                    </table>
+                    <div id="functionBlocksContainer" style="display: none;"></div>
+                `;
+            }
+            
                 await this.populateOverviewTab(this.currentDetailItem);
             }
         }
@@ -2310,11 +2310,11 @@ class DumpspaceApp {
         `;
         btn.disabled = false;
         
-        setTimeout(() => {
+                setTimeout(() => {
             btn.classList.remove('copy-success');
             btn.innerHTML = btn.dataset.originalContent || btn.innerHTML;
-        }, 2000);
-    }
+                }, 2000);
+            }
     
     showCopyButtonError(btn) {
         btn.classList.remove('copy-loading');
@@ -2456,17 +2456,17 @@ class DumpspaceApp {
             return;
         }
         
-        const item = this.currentDetailItem;
-        const filename = (item?.name || item?.funcName || 'code') + '.h';
-        try {
+            const item = this.currentDetailItem;
+            const filename = (item?.name || item?.funcName || 'code') + '.h';
+            try {
             const result = await window.electronAPI.saveFile(textToExport, filename);
-            if (result.success) {
+                if (result.success) {
                 this.showToast(`Code exported to ${result.path}`, 'success');
             } else {
                 this.showToast('Failed to export file', 'error');
-            }
-        } catch (error) {
-            console.error('Failed to export:', error);
+                }
+            } catch (error) {
+                console.error('Failed to export:', error);
             this.showToast('Failed to export file', 'error');
         }
     }
@@ -2557,8 +2557,8 @@ class DumpspaceApp {
             row.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 this.collections.showMemberContextMenu(e, row, currentClassName, member);
-            });
-            
+        });
+        
             currentTbody.appendChild(row);
         }
         
@@ -2586,7 +2586,7 @@ class DumpspaceApp {
                     if (collection.members && Array.isArray(collection.members)) {
                         collection.members.forEach(m => {
                             if (m.className === currentClassName && m.memberName) {
-                                memberInCollectionSet.add(`${m.className}::${m.memberName}`);
+                                memberInCollectionSet.add(`${m.className}::${m.memberName.toLowerCase()}`);
                             }
                         });
                     }
@@ -2607,13 +2607,19 @@ class DumpspaceApp {
             const memberNameCell = row.querySelector('.member-name');
             if (memberNameCell) {
                 const existingBadge = memberNameCell.querySelector('.member-in-collection-badge');
-                const currentText = memberNameCell.textContent || '';
-                const memberNameDisplay = currentText.replace('✓', '').trim();
                 
                 if (inCollection && !existingBadge) {
-                    memberNameCell.innerHTML = `${escapeHtml(memberNameDisplay)} <span class="member-in-collection-badge" title="Member is in a collection">✓</span>`;
+                    const currentText = memberNameCell.textContent || '';
+                    const memberNameDisplay = currentText.replace('✓', '').trim();
+                    if (memberNameDisplay) {
+                        memberNameCell.innerHTML = `${escapeHtml(memberNameDisplay)} <span class="member-in-collection-badge" title="Member is in a collection">✓</span>`;
+                    }
                 } else if (!inCollection && existingBadge) {
-                    memberNameCell.innerHTML = escapeHtml(memberNameDisplay);
+                    const currentText = memberNameCell.textContent || '';
+                    const memberNameDisplay = currentText.replace('✓', '').trim();
+                    if (memberNameDisplay) {
+                        memberNameCell.innerHTML = escapeHtml(memberNameDisplay);
+                    }
                 }
             }
         });
@@ -2826,28 +2832,28 @@ class DumpspaceApp {
         
         this.memberSearchMatches = [];
         const lowerQuery = query.toLowerCase();
-        
+
         if (currentTbody) {
-            const rows = Array.from(currentTbody.querySelectorAll('tr'));
+        const rows = Array.from(currentTbody.querySelectorAll('tr'));
+        
+        rows.forEach(row => {
+            const memberName = row.getAttribute('data-member-name') || '';
+            const memberType = row.getAttribute('data-member-type') || '';
+            const memberOffset = row.getAttribute('data-member-offset') || '';
             
-            rows.forEach(row => {
-                const memberName = row.getAttribute('data-member-name') || '';
-                const memberType = row.getAttribute('data-member-type') || '';
-                const memberOffset = row.getAttribute('data-member-offset') || '';
-                
                 const matches = memberName.toLowerCase().includes(lowerQuery) || 
                                memberType.toLowerCase().includes(lowerQuery) || 
                                memberOffset.toLowerCase().includes(lowerQuery);
-                
-                if (matches) {
-                    row.style.display = '';
-                    row.classList.add('member-search-match');
-                    this.memberSearchMatches.push(row);
-                } else {
-                    row.style.display = 'none';
-                    row.classList.remove('member-search-match', 'member-search-current');
-                }
-            });
+            
+            if (matches) {
+                row.style.display = '';
+                row.classList.add('member-search-match');
+                this.memberSearchMatches.push(row);
+            } else {
+                row.style.display = 'none';
+                row.classList.remove('member-search-match', 'member-search-current');
+            }
+        });
         }
         
         if (functionBlocksContainer && functionBlocksContainer.style.display !== 'none') {

@@ -1874,9 +1874,6 @@ class CollectionManager {
             if (this.app && this.app.refreshMemberCheckmarks) {
                 await this.app.refreshMemberCheckmarks();
             }
-            if (this.app.currentDetailItem) {
-                this.app.populateOverviewTab(this.app.currentDetailItem);
-            }
             if (document.getElementById('offsetsCollectionModal') && 
                 document.getElementById('offsetsCollectionModal').style.display !== 'none') {
                 setTimeout(() => {
