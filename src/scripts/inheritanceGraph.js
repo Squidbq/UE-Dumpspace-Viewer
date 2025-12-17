@@ -11,8 +11,15 @@ class InheritanceGraph {
         this.filteredEdges = [];
         this.searchQuery = '';
         this.showMembers = false;
+        this.showTypeReferences = true;
         this.history = [];
         this.historyIndex = -1;
+        this.isBuilding = false;
+        this.buildCancelled = false;
+        this.limitWarningShown = false;
+        this.MAX_NODES = 500;
+        this.MAX_EDGES = 1000;
+        this.MAX_TYPE_REF_DEPTH = 0;
         this.init();
     }
 
@@ -86,6 +93,13 @@ class InheritanceGraph {
                 this.updateGraph();
             });
         }
+        const showTypeRefsCheck = document.getElementById('graphShowTypeReferences');
+        if (showTypeRefsCheck) {
+            showTypeRefsCheck.addEventListener('change', () => {
+                this.showTypeReferences = showTypeRefsCheck.checked;
+                this.updateGraph();
+            });
+        }
         if (syncDepthsCheck && parentDepthInput && childDepthInput) {
             syncDepthsCheck.addEventListener('change', () => {
                 if (syncDepthsCheck.checked) {
@@ -132,11 +146,20 @@ class InheritanceGraph {
     }
 
     open(item, mode = 'both') {
-        if (this.network && this.historyIndex >= 0 && this.history[this.historyIndex]) {
-            this.saveViewState();
-        }
-        
+        this.openGraph(item, mode);
+    }
+    
+    openGraph(item, mode = 'both') {
         const itemName = item.name || item.className || 'Unknown';
+        
+        this.buildCancelled = false;
+        this.isBuilding = false;
+        this.limitWarningShown = false;
+        this.allNodes = [];
+        this.allEdges = [];
+        this.filteredNodes = [];
+        this.filteredEdges = [];
+        
         const historyEntry = { 
             item: item, 
             mode: mode, 
@@ -184,44 +207,80 @@ class InheritanceGraph {
             container.innerHTML = '<div class="graph-loading"><div class="graph-loading-spinner"></div><div class="graph-loading-text">Building graph...</div></div>';
         }
 
+        if (this.network) {
+            try {
+                this.network.destroy();
+            } catch (e) {
+            }
+            this.network = null;
+        }
+
         setTimeout(() => {
             this.buildGraphAsync().then(() => {
-                this.renderGraph(null);
+                if (!this.buildCancelled) {
+                    this.filterGraph();
+                    this.renderGraph(null);
+                }
             });
         }, 100);
     }
+    
 
     async buildGraphAsync() {
         return new Promise((resolve) => {
+            if (this.buildCancelled) {
+                resolve();
+                return;
+            }
+            
+            this.isBuilding = true;
             const container = document.getElementById('inheritanceGraphContainer');
             
-            const updateProgress = (pct, text) => {
-                if (container) {
+            const updateProgress = (pct, text, nodeCount = 0, edgeCount = 0) => {
+                if (container && !this.buildCancelled) {
                     const loadingDiv = container.querySelector('.graph-loading');
+                    const countText = nodeCount > 0 || edgeCount > 0 ? ` (${nodeCount} nodes, ${edgeCount} edges)` : '';
                     if (loadingDiv) {
                         const textDiv = loadingDiv.querySelector('.graph-loading-text');
                         if (textDiv) {
-                            textDiv.textContent = `${text} (${pct}%)`;
+                            textDiv.textContent = `${text} (${pct}%)${countText}`;
                         }
                     } else {
-                        container.innerHTML = `<div class="graph-loading"><div class="graph-loading-spinner"></div><div class="graph-loading-text">${text} (${pct}%)</div></div>`;
+                        container.innerHTML = `<div class="graph-loading"><div class="graph-loading-spinner"></div><div class="graph-loading-text">${text} (${pct}%)${countText}</div></div>`;
                     }
                 }
             };
             
             try {
                 requestAnimationFrame(() => {
-                    updateProgress(20, 'Initializing...');
+                    if (this.buildCancelled) {
+                        this.isBuilding = false;
+                        resolve();
+                        return;
+                    }
+                    updateProgress(10, 'Initializing...');
                     requestAnimationFrame(() => {
-                        updateProgress(50, 'Building tree...');
+                        if (this.buildCancelled) {
+                            this.isBuilding = false;
+                            resolve();
+                            return;
+                        }
+                        updateProgress(30, 'Building tree...');
                         requestAnimationFrame(() => {
+                            if (this.buildCancelled) {
+                                this.isBuilding = false;
+                                resolve();
+                                return;
+                            }
                             try {
                                 this.buildGraph();
-                                updateProgress(90, 'Finalizing...');
+                                updateProgress(90, 'Finalizing...', this.allNodes.length, this.allEdges.length);
                                 requestAnimationFrame(() => {
+                                    this.isBuilding = false;
                                     resolve();
                                 });
                             } catch (error) {
+                                this.isBuilding = false;
                                 updateProgress(100, 'Error building graph');
                                 setTimeout(() => resolve(), 100);
                             }
@@ -229,12 +288,40 @@ class InheritanceGraph {
                     });
                 });
             } catch (error) {
+                this.isBuilding = false;
                 resolve();
             }
         });
     }
 
     close() {
+        this.buildCancelled = true;
+        this.isBuilding = false;
+        this.limitWarningShown = false;
+        
+        if (this.network) {
+            try {
+                this.network.destroy();
+            } catch (e) {
+            }
+            this.network = null;
+        }
+        
+        const container = document.getElementById('inheritanceGraphContainer');
+        if (container) {
+            container.innerHTML = '';
+        }
+        
+        this.allNodes = [];
+        this.allEdges = [];
+        this.filteredNodes = [];
+        this.filteredEdges = [];
+        this.classStructCache = null;
+        this.inheritanceCache = null;
+        this.typeExtractionCache = null;
+        this.classColors = null;
+        this.matchingNodeIds = null;
+        
         const modal = document.getElementById('inheritanceGraphModal');
         if (modal) {
             modal.style.display = 'none';
@@ -250,11 +337,33 @@ class InheritanceGraph {
         const itemName = this.currentItem.name || this.currentItem.className;
         if (!itemName) return;
 
-
+        this.buildCancelled = false;
+        this.limitWarningShown = false;
         this.allNodes = [];
         this.allEdges = [];
         const nodeMap = new Map();
         const visited = new Set();
+        
+        const checkLimits = () => {
+            if (this.buildCancelled) return true;
+            const nodeCount = nodeMap.size;
+            const edgeCount = this.allEdges.length;
+            if (nodeCount >= this.MAX_NODES) {
+                if (edgeCount < this.MAX_EDGES && !this.limitWarningShown) {
+                    this.showLimitWarning('nodes', this.MAX_NODES);
+                    this.limitWarningShown = true;
+                }
+                return true;
+            }
+            if (edgeCount >= this.MAX_EDGES) {
+                if (nodeCount < this.MAX_NODES && !this.limitWarningShown) {
+                    this.showLimitWarning('edges', this.MAX_EDGES);
+                    this.limitWarningShown = true;
+                }
+                return true;
+            }
+            return false;
+        };
         
         const classStructCache = new Map();
         const inheritanceCache = new Map();
@@ -292,6 +401,16 @@ class InheritanceGraph {
         const showMembersCheck = document.getElementById('graphShowMembers');
         const showMembers = showMembersCheck ? showMembersCheck.checked : false;
         
+        const showTypeRefsCheck = document.getElementById('graphShowTypeReferences');
+        let showTypeRefs = showTypeRefsCheck ? showTypeRefsCheck.checked : (this.showTypeReferences !== false);
+        if (showMembers) {
+            showTypeRefs = false;
+            if (showTypeRefsCheck) {
+                showTypeRefsCheck.checked = false;
+            }
+        }
+        this.showTypeReferences = showTypeRefs;
+        
         
         const getClassColor = (className) => {
             if (!this.classColors.has(className)) {
@@ -321,6 +440,7 @@ class InheritanceGraph {
             const inheritInfo = window.inheritanceViewer.getInheritanceInfo(this.currentItem);
             if (inheritInfo && inheritInfo.length > 0) {
                 inheritInfo.forEach((parentName, index) => {
+                    if (checkLimits()) return;
                     if (!visited.has(parentName) && (index + 1) <= parentDepth) {
                         const parentNode = {
                             id: parentName,
@@ -344,7 +464,7 @@ class InheritanceGraph {
         const showChildrenCheck = document.getElementById('graphShowChildren');
         if (showChildrenCheck && showChildrenCheck.checked && childDepth > 0) {
             const children = window.inheritanceViewer.findChildren(itemName);
-            this.addChildrenRecursive(itemName, children, nodeMap, visited, 1, childDepth);
+            this.addChildrenRecursive(itemName, children, nodeMap, visited, 1, childDepth, checkLimits);
         }
         
 
@@ -352,6 +472,7 @@ class InheritanceGraph {
             const classesToProcess = [];
             
             nodeMap.forEach((node, key) => {
+                if (checkLimits()) return;
                 const className = key;
                 
                 const isMemberNode = node.type === 'member' || className.includes('::');
@@ -381,15 +502,23 @@ class InheritanceGraph {
             
             
             const visitedTypeRefs = new Set();
-            classesToProcess.forEach(className => {
+            for (const className of classesToProcess) {
+                if (checkLimits()) break;
                 const node = nodeMap.get(className);
                 const isChildClass = node && node.level > 0;
-                this.addMembersToGraph(className, nodeMap, isChildClass, 0, visitedTypeRefs);
-            });
+                this.addMembersToGraph(className, nodeMap, isChildClass, 0, visitedTypeRefs, checkLimits);
+            }
             
         }
 
         this.allNodes = Array.from(nodeMap.values());
+        
+        if (this.allNodes.length === 0) {
+            const currentNode = nodeMap.get(itemName);
+            if (currentNode) {
+                this.allNodes = [currentNode];
+            }
+        }
         
         const classNodes = this.allNodes.filter(n => n.type !== 'member').length;
         const memberNodes = this.allNodes.filter(n => n.type === 'member').length;
@@ -403,8 +532,20 @@ class InheritanceGraph {
         });
         
     }
+    
+    showLimitWarning(type, limit) {
+        if (window.app && window.app.showToast) {
+            window.app.showToast(
+                `Graph limit reached: Maximum ${limit} ${type}. Graph building stopped to prevent memory issues.`,
+                'warning',
+                5000
+            );
+        }
+    }
 
-    addMembersToGraph(className, nodeMap, includeInherited = false, typeReferenceDepth = 0, visitedTypeRefs = new Set()) {
+    addMembersToGraph(className, nodeMap, includeInherited = false, typeReferenceDepth = 0, visitedTypeRefs = new Set(), checkLimits = null) {
+        if (checkLimits && checkLimits()) return;
+        
         const classItem = this.classStructCache ? this.classStructCache.get(className) : 
                          (window.app.indexes.classes.get(className) || window.app.indexes.structs.get(className));
         
@@ -420,6 +561,9 @@ class InheritanceGraph {
         const parentDepthInput = document.getElementById('graphParentDepth');
         const childDepthInput = document.getElementById('graphChildDepth');
         const childDepth = childDepthInput ? parseInt(childDepthInput.value) || 0 : 0;
+        
+        const showTypeRefs = this.showTypeReferences !== false;
+        const maxTypeRefDepth = showTypeRefs ? this.MAX_TYPE_REF_DEPTH : 0;
         
         
         const inheritedMembers = new Map();
@@ -464,11 +608,13 @@ class InheritanceGraph {
         let skippedReasons = {};
         
         for (const member of classItem.data) {
+            if (checkLimits && checkLimits()) break;
             if (memberCount >= maxMembersPerClass) break;
             
             if (typeof member === 'object' && member !== null) {
                 const entries = Object.entries(member);
                 for (const [memberName, memberData] of entries) {
+                    if (checkLimits && checkLimits()) break;
                     if (memberCount >= maxMembersPerClass) break;
                     
                     if (memberName === '__InheritInfo' || memberName === '__MDKClassSize') {
@@ -504,6 +650,8 @@ class InheritanceGraph {
                             nodeMap.set(memberNodeId, memberNode);
                             memberCount++;
                             
+                            if (checkLimits && checkLimits()) break;
+                            
                             this.allEdges.push({
                                 from: className,
                                 to: memberNodeId,
@@ -513,56 +661,59 @@ class InheritanceGraph {
                                 width: 2
                             });
                             
-                            const typeInfoKey = Array.isArray(typeInfo) ? JSON.stringify(typeInfo) : String(typeInfo);
-                            let referencedClasses = this.typeExtractionCache ? this.typeExtractionCache.get(typeInfoKey) : null;
-                            if (!referencedClasses) {
-                                referencedClasses = this.extractClassNamesFromType(typeInfo);
-                                if (this.typeExtractionCache) {
-                                    this.typeExtractionCache.set(typeInfoKey, referencedClasses);
+                            if (showTypeRefs && typeReferenceDepth < maxTypeRefDepth && !checkLimits()) {
+                                const typeInfoKey = Array.isArray(typeInfo) ? JSON.stringify(typeInfo) : String(typeInfo);
+                                let referencedClasses = this.typeExtractionCache ? this.typeExtractionCache.get(typeInfoKey) : null;
+                                if (!referencedClasses) {
+                                    referencedClasses = this.extractClassNamesFromType(typeInfo);
+                                    if (this.typeExtractionCache) {
+                                        this.typeExtractionCache.set(typeInfoKey, referencedClasses);
+                                    }
+                                }
+                                for (const refClass of referencedClasses) {
+                                    if (checkLimits && checkLimits()) break;
+                                    if ((typeReferenceDepth + 1) <= maxTypeRefDepth && !visitedTypeRefs.has(refClass)) {
+                                        visitedTypeRefs.add(refClass);
+                                        
+                                        if (!nodeMap.has(refClass)) {
+                                            const refClassItem = this.classStructCache ? this.classStructCache.get(refClass) : 
+                                                               (window.app.indexes.classes.get(refClass) || window.app.indexes.structs.get(refClass));
+                                            if (refClassItem) {
+                                                const refClassLevel = 100 + typeReferenceDepth;
+                                                const refClassNode = {
+                                                    id: refClass,
+                                                    label: refClass,
+                                                    type: 'class',
+                                                    isCurrent: false,
+                                                    level: refClassLevel,
+                                                    isTypeReference: true
+                                                };
+                                                nodeMap.set(refClass, refClassNode);
+                                            }
+                                        }
+                                        
+                                        if (!checkLimits()) {
+                                            this.allEdges.push({
+                                                from: memberNodeId,
+                                                to: refClass,
+                                                arrows: 'to',
+                                                color: '#9b59b6',
+                                                dashes: [5, 5],
+                                                width: 1
+                                            });
+                                        }
+                                    } else if (nodeMap.has(refClass) && !checkLimits()) {
+                                        this.allEdges.push({
+                                            from: memberNodeId,
+                                            to: refClass,
+                                            arrows: 'to',
+                                            color: '#9b59b6',
+                                            dashes: [5, 5],
+                                            width: 1
+                                        });
+                                    }
                                 }
                             }
-                            referencedClasses.forEach(refClass => {
-                                if ((typeReferenceDepth + 1) <= childDepth && !visitedTypeRefs.has(refClass)) {
-                                    visitedTypeRefs.add(refClass);
-                                    
-                                    if (!nodeMap.has(refClass)) {
-                                        const refClassItem = this.classStructCache ? this.classStructCache.get(refClass) : 
-                                                           (window.app.indexes.classes.get(refClass) || window.app.indexes.structs.get(refClass));
-                                        if (refClassItem) {
-                                            const refClassLevel = 100 + typeReferenceDepth;
-                                            const refClassNode = {
-                                                id: refClass,
-                                                label: refClass,
-                                                type: 'class',
-                                                isCurrent: false,
-                                                level: refClassLevel,
-                                                isTypeReference: true
-                                            };
-                                            nodeMap.set(refClass, refClassNode);
-                                            
-                                            this.addMembersToGraph(refClass, nodeMap, false, typeReferenceDepth + 1, visitedTypeRefs);
-                                        }
-                                    }
-                                    
-                                    this.allEdges.push({
-                                        from: memberNodeId,
-                                        to: refClass,
-                                        arrows: 'to',
-                                        color: '#9b59b6',
-                                        dashes: [5, 5],
-                                        width: 1
-                                    });
-                                } else if (nodeMap.has(refClass)) {
-                                    this.allEdges.push({
-                                        from: memberNodeId,
-                                        to: refClass,
-                                        arrows: 'to',
-                                        color: '#9b59b6',
-                                        dashes: [5, 5],
-                                        width: 1
-                                    });
-                                }
-                            });
                         }
                     } else {
                         skippedCount++;
@@ -581,6 +732,7 @@ class InheritanceGraph {
         if (includeInherited && inheritedMembers.size > 0) {
             let inheritedCount = 0;
             for (const [memberName, {parentClass, memberData}] of inheritedMembers) {
+                if (checkLimits && checkLimits()) break;
                 if (memberCount >= maxMembersPerClass) break;
                 
                 const typeInfo = memberData[0];
@@ -629,56 +781,59 @@ class InheritanceGraph {
                     });
                 }
                 
-                const typeInfoKey = Array.isArray(typeInfo) ? JSON.stringify(typeInfo) : String(typeInfo);
-                let referencedClasses = this.typeExtractionCache ? this.typeExtractionCache.get(typeInfoKey) : null;
-                if (!referencedClasses) {
-                    referencedClasses = this.extractClassNamesFromType(typeInfo);
-                    if (this.typeExtractionCache) {
-                        this.typeExtractionCache.set(typeInfoKey, referencedClasses);
+                if (showTypeRefs && typeReferenceDepth < maxTypeRefDepth && !checkLimits()) {
+                    const typeInfoKey = Array.isArray(typeInfo) ? JSON.stringify(typeInfo) : String(typeInfo);
+                    let referencedClasses = this.typeExtractionCache ? this.typeExtractionCache.get(typeInfoKey) : null;
+                    if (!referencedClasses) {
+                        referencedClasses = this.extractClassNamesFromType(typeInfo);
+                        if (this.typeExtractionCache) {
+                            this.typeExtractionCache.set(typeInfoKey, referencedClasses);
+                        }
+                    }
+                    for (const refClass of referencedClasses) {
+                        if (checkLimits && checkLimits()) break;
+                        if ((typeReferenceDepth + 1) <= maxTypeRefDepth && !visitedTypeRefs.has(refClass)) {
+                            visitedTypeRefs.add(refClass);
+                            
+                            if (!nodeMap.has(refClass)) {
+                                const refClassItem = this.classStructCache ? this.classStructCache.get(refClass) : 
+                                                   (window.app.indexes.classes.get(refClass) || window.app.indexes.structs.get(refClass));
+                                if (refClassItem) {
+                                    const refClassLevel = 100 + typeReferenceDepth;
+                                    const refClassNode = {
+                                        id: refClass,
+                                        label: refClass,
+                                        type: 'class',
+                                        isCurrent: false,
+                                        level: refClassLevel,
+                                        isTypeReference: true
+                                    };
+                                    nodeMap.set(refClass, refClassNode);
+                                }
+                            }
+                            
+                            if (!checkLimits()) {
+                                this.allEdges.push({
+                                    from: memberNodeId,
+                                    to: refClass,
+                                    arrows: 'to',
+                                    color: '#9b59b6',
+                                    dashes: [5, 5],
+                                    width: 1
+                                });
+                            }
+                        } else if (nodeMap.has(refClass) && !checkLimits()) {
+                            this.allEdges.push({
+                                from: memberNodeId,
+                                to: refClass,
+                                arrows: 'to',
+                                color: '#9b59b6',
+                                dashes: [5, 5],
+                                width: 1
+                            });
+                        }
                     }
                 }
-                referencedClasses.forEach(refClass => {
-                    if ((typeReferenceDepth + 1) <= childDepth && !visitedTypeRefs.has(refClass)) {
-                        visitedTypeRefs.add(refClass);
-                        
-                        if (!nodeMap.has(refClass)) {
-                            const refClassItem = this.classStructCache ? this.classStructCache.get(refClass) : 
-                                               (window.app.indexes.classes.get(refClass) || window.app.indexes.structs.get(refClass));
-                            if (refClassItem) {
-                                const refClassLevel = 100 + typeReferenceDepth;
-                                const refClassNode = {
-                                    id: refClass,
-                                    label: refClass,
-                                    type: 'class',
-                                    isCurrent: false,
-                                    level: refClassLevel,
-                                    isTypeReference: true
-                                };
-                                nodeMap.set(refClass, refClassNode);
-                                
-                                this.addMembersToGraph(refClass, nodeMap, false, typeReferenceDepth + 1, visitedTypeRefs);
-                            }
-                        }
-                        
-                        this.allEdges.push({
-                            from: memberNodeId,
-                            to: refClass,
-                            arrows: 'to',
-                            color: '#9b59b6',
-                            dashes: [5, 5],
-                            width: 1
-                        });
-                    } else if (nodeMap.has(refClass)) {
-                        this.allEdges.push({
-                            from: memberNodeId,
-                            to: refClass,
-                            arrows: 'to',
-                            color: '#9b59b6',
-                            dashes: [5, 5],
-                            width: 1
-                        });
-                    }
-                });
             }
         }
     }
@@ -723,10 +878,12 @@ class InheritanceGraph {
         return classNames;
     }
 
-    addChildrenRecursive(parentName, children, nodeMap, visited, currentDepth, maxDepth) {
+    addChildrenRecursive(parentName, children, nodeMap, visited, currentDepth, maxDepth, checkLimits = null) {
         if (currentDepth > maxDepth) return;
+        if (checkLimits && checkLimits()) return;
 
         children.forEach(childName => {
+            if (checkLimits && checkLimits()) return;
             if (!visited.has(childName)) {
                 const childNode = {
                     id: childName,
@@ -745,7 +902,7 @@ class InheritanceGraph {
 
                 const grandchildren = window.inheritanceViewer.findChildren(childName);
                 if (grandchildren.length > 0) {
-                    this.addChildrenRecursive(childName, grandchildren, nodeMap, visited, currentDepth + 1, maxDepth);
+                    this.addChildrenRecursive(childName, grandchildren, nodeMap, visited, currentDepth + 1, maxDepth, checkLimits);
                 }
             }
         });
@@ -774,17 +931,45 @@ class InheritanceGraph {
     }
 
     updateGraph() {
+        if (this.isBuilding) {
+            this.buildCancelled = true;
+            this.isBuilding = false;
+        }
+        
         const container = document.getElementById('inheritanceGraphContainer');
         if (container) {
             container.innerHTML = '<div class="graph-loading"><div class="graph-loading-spinner"></div><div class="graph-loading-text">Updating graph...</div></div>';
         }
-        const oldNetwork = this.network;
-        this.network = null;
+        
+        if (this.network) {
+            try {
+                this.network.destroy();
+            } catch (e) {
+            }
+            this.network = null;
+        }
+        
+        this.buildCancelled = false;
+        this.isBuilding = true;
         
         this.buildGraphAsync().then(() => {
-            this.filterGraph();
-            this.renderGraph(null);
+            this.isBuilding = false;
+            if (!this.buildCancelled && this.allNodes.length > 0) {
+                this.filterGraph();
+                this.renderGraph(null);
+            } else if (this.buildCancelled) {
+                const container = document.getElementById('inheritanceGraphContainer');
+                if (container) {
+                    container.innerHTML = '<div class="graph-loading"><div class="graph-loading-text">Graph building cancelled.</div></div>';
+                }
+            } else {
+                const container = document.getElementById('inheritanceGraphContainer');
+                if (container) {
+                    container.innerHTML = '<div class="graph-loading"><div class="graph-loading-text">No graph data available.</div></div>';
+                }
+            }
         }).catch((error) => {
+            this.isBuilding = false;
             const container = document.getElementById('inheritanceGraphContainer');
             if (container) {
                 container.innerHTML = '<div class="graph-loading"><div class="graph-loading-text">Error updating graph. Please try again.</div></div>';
@@ -812,39 +997,19 @@ class InheritanceGraph {
             nodes: new vis.DataSet(this.filteredNodes.map(node => {
                 const isMember = node.type === 'member';
                 const isCurrent = node.isCurrent;
-                
-                
                 const memberColor = node.memberColor || '#6b7fd7';
                 const headerColor = isCurrent ? '#4a9eff' : isMember ? memberColor : '#4caf50';
-                
-                const labelParts = node.label.split('\n');
-                const headerText = labelParts[0];
-                const bodyText = labelParts.length > 1 ? labelParts[1] : '';
-                
-                const formattedLabel = bodyText ? `${headerText}\n${bodyText}` : headerText;
-                
-                const lightenColor = (color, percent) => {
-                    if (!color || !color.startsWith('#')) return color;
-                    const num = parseInt(color.replace('#', ''), 16);
-                    const r = Math.min(255, (num >> 16) + percent);
-                    const g = Math.min(255, ((num >> 8) & 0x00FF) + percent);
-                    const b = Math.min(255, (num & 0x0000FF) + percent);
-                    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
-                };
-                
                 const isMatch = this.matchingNodeIds && this.matchingNodeIds.has(node.id);
-                const searchHighlightColor = '#ffeb3b';
                 
                 return {
                     id: node.id,
-                    label: formattedLabel,
+                    label: node.label,
                     color: {
-                        background: isMatch ? searchHighlightColor : headerColor,
+                        background: isMatch ? '#ffeb3b' : headerColor,
                         border: isMatch ? '#ffc107' : (isMember ? memberColor : '#ffffff'),
                         highlight: { 
-                            background: isCurrent ? '#5ba8ff' : isMember ? lightenColor(memberColor, 20) : '#66bb6a', 
-                            border: isMember ? memberColor : '#ffffff',
-                            borderWidth: 3
+                            background: isCurrent ? '#5ba8ff' : isMember ? memberColor : '#66bb6a', 
+                            border: '#ffffff'
                         }
                     },
                     font: { 
@@ -852,8 +1017,7 @@ class InheritanceGraph {
                         size: isMember ? 9 : 11,
                         face: isMember ? 'monospace' : 'Arial',
                         align: 'center',
-                        multi: true,
-                        bold: false
+                        multi: true
                     },
                     shape: 'box',
                     borderWidth: 2,
@@ -863,44 +1027,14 @@ class InheritanceGraph {
                     widthConstraint: {
                         maximum: isMember ? 400 : 500
                     },
-                    scaling: {
-                        min: 0.1,
-                        max: 10
-                    },
-                    title: node.label,
-                    shadow: {
-                        enabled: true,
-                        color: 'rgba(0,0,0,0.3)',
-                        size: 5,
-                        x: 2,
-                        y: 2
-                    },
-                    chosen: {
-                        node: (values, id, selected, hovering) => {
-                            if (selected || hovering) {
-                                values.borderWidth = 3;
-                                values.borderColor = '#ffffff';
-                                values.shadow = {
-                                    enabled: true,
-                                    color: 'rgba(74, 158, 255, 0.5)',
-                                    size: 10,
-                                    x: 0,
-                                    y: 0
-                                };
-                            }
-                        }
-                    }
+                    title: node.label
                 };
             })),
             edges: new vis.DataSet(this.filteredEdges.map(edge => ({
                 from: edge.from,
                 to: edge.to,
                 arrows: edge.arrows || 'to',
-                color: { 
-                    color: edge.color || '#ffffff', 
-                    highlight: edge.color || '#4a9eff',
-                    opacity: 0.8
-                },
+                color: edge.color || '#ffffff',
                 width: edge.width || 2,
                 dashes: edge.dashes || false,
                 smooth: { 
@@ -947,49 +1081,24 @@ class InheritanceGraph {
                 widthConstraint: {
                     maximum: 500
                 },
-                shapeProperties: {
-                    useBorderWithImage: true
-                },
                 scaling: {
                     min: 0.1,
-                    max: 10,
-                    label: {
-                        enabled: true,
-                        min: 8,
-                        max: 30
-                    }
-                },
-                opacity: 1.0,
-                hidden: false
+                    max: 10
+                }
             },
             edges: {
                 arrows: {
                     to: {
                         enabled: true,
-                        scaleFactor: 1.2,
-                        type: 'arrow'
+                        scaleFactor: 1.2
                     }
                 },
-                length: 200,
                 smooth: {
                     type: 'straightCross',
                     roundness: 0,
                     forceDirection: 'vertical'
                 },
-                width: 2.5,
-                color: {
-                    color: '#4a9eff',
-                    highlight: '#5ba8ff',
-                    opacity: 1.0
-                },
-                selectionWidth: 4,
-                font: {
-                    color: '#4a9eff',
-                    size: 10,
-                    align: 'middle',
-                    strokeWidth: 3,
-                    strokeColor: '#1e1e1e'
-                }
+                width: 2.5
             }
         };
 
@@ -1284,7 +1393,7 @@ class InheritanceGraph {
                 menu.appendChild(item);
             } else {
                 const parentItem = document.createElement('div');
-                parentItem.textContent = 'Follow up ▼';
+                parentItem.textContent = 'Follow up ▲';
                 parentItem.style.cssText = `
                     padding: 8px 16px;
                     cursor: pointer;
