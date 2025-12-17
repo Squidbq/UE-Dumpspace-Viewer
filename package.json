@@ -16,15 +16,14 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^39.2.7",
-    "electron-builder": "^26.0.12"
+    "electron": "39.2.7",
+    "electron-builder": "26.3.6"
   },
   "build": {
     "appId": "com.dumpspace.viewer",
     "productName": "Dumpspace Viewer",
     "asar": true,
     "compression": "maximum",
-    "icon": "build/icon",
     "win": {
       "target": [
         {
@@ -45,7 +44,6 @@
     "files": [
       "src/**/*",
       "package.json",
-      ".npmignore",
       "!**/*.map",
       "!**/*.md",
       "!**/README*",
@@ -62,17 +60,11 @@
     ],
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "warningsAsErrors": false
     }
   },
   "dependencies": {
-    "vis-network": "^10.0.2"
-  },
-  "overrides": {
-    "glob": "^10.0.0",
-    "rimraf": "^5.0.0",
-    "inflight": "npm:@isaacs/inflight@^1.0.6",
-    "boolean": "^4.0.0",
-    "@npmcli/move-file": "npm:@npmcli/fs@^3.0.0"
+    "vis-network": "10.0.2"
   }
 }
